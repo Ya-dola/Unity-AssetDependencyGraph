@@ -8,8 +8,9 @@ This project provides a basic Asset Dependency Graph for Unity using the new [Gr
 ![](Images~/graphview2.png?raw=true)
 
 ## Install instructions
-1. Close Unity and open the `Packages/manifest.json` file
-2. Add `"com.harryrose.assetdependencygraph": "https://github.com/Unity-Harry/Unity-AssetDependencyGraph.git",` to the `dependencies` section
+1. Download zip
+2. Extract folder
+3. In unity package manager select "Install from disk" and select .Json file from extracted folder
 
 ## Usage
 
@@ -24,4 +25,4 @@ Once the window is open:
 Any questions? Ask [@peanutbuffer](https://twitter.com/PeanutBuffer)
 
 ## Tested against
-2019.2, 2019.1, 2018.4, 2018.3
+2019.4.13
