@@ -5,7 +5,7 @@ New License and Contribution Guidelines: 28/10/2020
 This project provides a basic Asset Dependency Graph for Unity using the new [GraphView](https://docs.unity3d.com/2019.2/Documentation/ScriptReference/Experimental.GraphView.GraphView.html) API.
 
 ![](Images~/graphview1.png?raw=true)
-
+![](Images~/graphview2.png?raw=true)
 
 ## Install instructions
 1. Close Unity and open the `Packages/manifest.json` file
