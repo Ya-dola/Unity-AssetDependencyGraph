@@ -35,7 +35,7 @@ public class AssetGraphView : GraphView {
 }
 
 public class AssetGroup {
-    //public string groupName= "";
+    //public AssetGroup SharedGroup;
     public Group groupNode = new Group();
     public Node mainNode = new Node();
     public Rect MainNodeLastPosition = new Rect();
@@ -58,7 +58,11 @@ public class AssetDependencyGraph : EditorWindow {
     Toggle CustomToggle;  //for scriptable objects, change to list/searchfield containing custom filters or something
     Toggle AlignmentToggle;
 
+    //Toggle SharedToggle;    //show shared assets in separate group
+
     private GraphView m_GraphView;
+
+    //AssetGroup NewAssetGroup; //group for shared assets
 
     private readonly List<Object> SelectedObjects = new List<Object>();
     private readonly List<AssetGroup> AssetGroups = new List<AssetGroup>();
@@ -79,11 +83,34 @@ public class AssetDependencyGraph : EditorWindow {
     }
 
     public void OnEnable() {
+        CreateGraph();
+    }
+
+    public void OnDisable() {
+        rootVisualElement.Remove(m_GraphView);
+    }
+
+    void CreateGraph() {
         m_GraphView = new AssetGraphView {
             name = "Asset Dependency Graph",
         };
 
-        #region Toolbar
+        VisualElement toolbar = CreateToolbar();
+        VisualElement toolbar2 = CreateFilterbar();
+
+#if !UNITY_2019_1_OR_NEWER
+        rootVisualElement = this.GetRootVisualContainer();
+#endif
+        rootVisualElement.Add(toolbar);
+        rootVisualElement.Add(toolbar2);
+        rootVisualElement.Add(m_GraphView);
+        m_GraphView.StretchToParentSize();
+        toolbar.BringToFront();
+        toolbar2.BringToFront();
+    }
+
+    VisualElement CreateToolbar() { 
+    
         var toolbar = new VisualElement {
             style =
             {
@@ -104,9 +131,69 @@ public class AssetDependencyGraph : EditorWindow {
         toolbar.Add(new Button(ClearGraph) {
             text = "Clear"
         });
-        toolbar.Add(new Button(ResetAllGroups) {
-            text = "Reset"
+        toolbar.Add(new Button(ResetGroups) {
+            text = "Reset Groups"
         });
+        toolbar.Add(new Button(ResetAllNodes) {
+            text = "Reset Nodes"
+        });
+
+        var ts = new ToolbarSearchField();
+        ts.RegisterValueChangedCallback(x => {
+            if (string.IsNullOrEmpty(x.newValue)) {
+                m_GraphView.FrameAll();
+                return;
+            }
+
+            m_GraphView.ClearSelection();
+            // m_GraphView.graphElements.ForEach(y => { // BROKEN, Case 1268337
+            m_GraphView.graphElements.ToList().ForEach(y => {
+                if (y is Node node && y.title.IndexOf(x.newValue, System.StringComparison.OrdinalIgnoreCase) >= 0) {
+                    m_GraphView.AddToSelection(node);
+                }
+            });
+
+            m_GraphView.FrameSelection();
+        });
+        toolbar.Add(ts);
+
+        AlignmentToggle = new Toggle();
+        AlignmentToggle.text = "Horizontal Layout";
+        AlignmentToggle.value = false;
+        AlignmentToggle.RegisterValueChangedCallback(x => {
+            ResetAllNodes();
+        });
+        toolbar.Add(AlignmentToggle);
+
+        //SharedToggle = new Toggle();
+        //SharedToggle.text = "Show shared groups (WIP)";
+        //SharedToggle.value = false;
+        //SharedToggle.RegisterValueChangedCallback(x => {
+        //    ResetAllNodes();
+        //});
+        //toolbar.Add(SharedToggle);
+
+        return toolbar;
+    }
+
+    VisualElement CreateFilterbar() {
+
+        var toolbar = new VisualElement {
+            style =
+            {
+                flexDirection = FlexDirection.Row,
+                flexGrow = 0,
+                backgroundColor = new Color(0.25f, 0.25f, 0.25f, 0.75f)
+            }
+        };
+
+        var options = new VisualElement {
+            style = { alignContent = Align.Center }
+        };
+
+        toolbar.Add(options);
+
+        toolbar.Add(new Label("Filters: "));
 
         codeToggle = new Toggle();
         codeToggle.text = "Hide Scripts";
@@ -155,7 +242,7 @@ public class AssetDependencyGraph : EditorWindow {
             FilterAssetGroups();
         });
         toolbar.Add(animationClipToggle);
-                
+
         CustomToggle = new Toggle();
         CustomToggle.text = "Hide Custom";
         CustomToggle.value = true;
@@ -164,72 +251,37 @@ public class AssetDependencyGraph : EditorWindow {
         });
         toolbar.Add(CustomToggle);
 
-        var ts = new ToolbarSearchField();
-        ts.RegisterValueChangedCallback(x => {
-            if (string.IsNullOrEmpty(x.newValue)) {
-                m_GraphView.FrameAll();
-                return;
-            }
-
-            m_GraphView.ClearSelection();
-            // m_GraphView.graphElements.ForEach(y => { // BROKEN, Case 1268337
-            m_GraphView.graphElements.ToList().ForEach(y => {
-                if (y is Node node && y.title.IndexOf(x.newValue, System.StringComparison.OrdinalIgnoreCase) >= 0) {
-                    m_GraphView.AddToSelection(node);
-                }
-            });
-
-            m_GraphView.FrameSelection();
-        });
-        toolbar.Add(ts);
-
-        AlignmentToggle = new Toggle();
-        AlignmentToggle.text = "Horizontal Layout";
-        AlignmentToggle.value = false;
-        AlignmentToggle.RegisterValueChangedCallback(x => {
-            ResetAllGroups();
-        });
-        toolbar.Add(AlignmentToggle);
-        #endregion
-
-#if !UNITY_2019_1_OR_NEWER
-        rootVisualElement = this.GetRootVisualContainer();
-#endif
-        rootVisualElement.Add(toolbar);
-        rootVisualElement.Add(m_GraphView);
-        m_GraphView.StretchToParentSize();
-        toolbar.BringToFront();
-    }
-
-    public void OnDisable() {
-        rootVisualElement.Remove(m_GraphView);
+        return toolbar;
     }
 
     private void ExploreAsset() {
         //ClearGraph();
 
-        Object obj = Selection.activeObject;
+        //Object obj = Selection.activeObject;
+        Object[] objs = Selection.objects;
 
-        //Prevent readding same object
-        if (SelectedObjects.Contains(obj)) {
-            Debug.Log("Object already loaded");
-            return;
+        foreach (var obj in objs) {
+            //Prevent readding same object
+            if (SelectedObjects.Contains(obj)) {
+                Debug.Log("Object already loaded");
+                return;
+            }
+            SelectedObjects.Add(obj);
+
+            AssetGroup AssetGroup = new AssetGroup();
+            AssetGroups.Add(AssetGroup);
+            AssetGroup.assetPath = AssetDatabase.GetAssetPath(obj);
+
+            // assetPath will be empty if obj is null or isn't an asset (a scene object)
+            if (obj == null || string.IsNullOrEmpty(AssetGroup.assetPath))
+                return;
+
+            //Group groupNode = new Group { title = obj.name };
+            //AssetGroup.groupName = obj.name;
+            AssetGroup.groupNode = new Group { title = obj.name };
+            
+            PopulateGroup(AssetGroup, new Rect(0, 0, 0, 0));
         }
-        SelectedObjects.Add(obj);
-
-        AssetGroup AssetGroup = new AssetGroup();
-        AssetGroups.Add(AssetGroup);
-        AssetGroup.assetPath = AssetDatabase.GetAssetPath(obj);
-
-        // assetPath will be empty if obj is null or isn't an asset (a scene object)
-        if (obj == null || string.IsNullOrEmpty(AssetGroup.assetPath))
-            return;
-
-        //Group groupNode = new Group { title = obj.name };
-        //AssetGroup.groupName = obj.name;
-        AssetGroup.groupNode = new Group { title = obj.name };
-
-        PopulateGroup(AssetGroup, new Rect(0, 0, 0, 0));
     }
 
     void PopulateGroup(AssetGroup AssetGroup, Rect position) {
@@ -279,25 +331,32 @@ public class AssetDependencyGraph : EditorWindow {
         m_GUIDNodeLookup.Clear();
 
         foreach (var AssetGroup in AssetGroups) {
-            //Rect MainNodePosition = AssetGroup.mainNode.GetPosition();
-
             //clear the nodes and dependencies after getting the position of the main node 
-            foreach (var edge in AssetGroup.m_AssetConnections) {
-                m_GraphView.RemoveElement(edge);
-            }
-            AssetGroup.m_AssetConnections.Clear();
+            CleanGroup(AssetGroup);
 
-            foreach (var node in AssetGroup.m_AssetNodes) {
-                m_GraphView.RemoveElement(node);
-            }
-
-            AssetGroup.m_AssetNodes.Clear();
-            //m_GUIDNodeLookup.Clear();
-            AssetGroup.m_DependenciesForPlacement.Clear();
-
-            //AssetGroup.groupNode = new Group { title = AssetGroup.groupName };
             PopulateGroup(AssetGroup, AssetGroup.MainNodeLastPosition);
         }
+    }
+
+    void CleanGroup(AssetGroup assetGroup) {
+        if (assetGroup.m_AssetConnections.Count > 0) {
+            foreach (var edge in assetGroup.m_AssetConnections) {
+                m_GraphView.RemoveElement(edge);
+            }
+        }
+        assetGroup.m_AssetConnections.Clear();
+
+        foreach (var node in assetGroup.m_AssetNodes) {
+            m_GraphView.RemoveElement(node);
+        }
+        assetGroup.m_AssetNodes.Clear();
+
+        assetGroup.m_DependenciesForPlacement.Clear();
+
+
+        //if (assetGroup.SharedGroup != null) {
+        //    CleanGroup(assetGroup.SharedGroup);
+        //}
     }
 
     private void CreateDependencyNodes(AssetGroup assetGroup, string[] dependencies, Node parentNode, Group groupNode, int depth) {
@@ -317,29 +376,62 @@ public class AssetDependencyGraph : EditorWindow {
             Node dependencyNode = CreateNode(assetGroup, dependencyAsset, AssetDatabase.GetAssetPath(dependencyAsset),
                 false, deeperDependencies.Length);
 
-            if (!assetGroup.m_AssetNodes.Contains(dependencyNode))
+            if (!assetGroup.m_AssetNodes.Contains(dependencyNode)) {
                 dependencyNode.userData = depth;
+            }            
 
             CreateDependencyNodes(assetGroup, deeperDependencies, dependencyNode, groupNode, depth + 1);
 
+            //if the node doesnt exists yet, put it in the group
             if (!m_GraphView.Contains(dependencyNode)) {
                 m_GraphView.AddElement(dependencyNode);
 
                 assetGroup.m_DependenciesForPlacement.Add(dependencyNode);
                 groupNode.AddElement(dependencyNode);
             }
+            else {
+                //TODO: if it already exists, put it in a separate group for shared assets
+                //Check if the dependencyNode is in the same group or not
+                //if it's a different group move it to a new shared group
+                /*
+                if (SharedToggle.value) {
+                    if (!assetGroup.m_AssetNodes.Contains(dependencyNode)) {
+                        if (assetGroup.SharedGroup == null) {
+                            assetGroup.SharedGroup = new AssetGroup();
 
-            //if (!assetGroup.m_AssetNodes.Contains(dependencyNode))
-            //    groupNode.AddElement(dependencyNode);
+                            AssetGroups.Add(assetGroup.SharedGroup);
+                            assetGroup.SharedGroup.assetPath = assetGroup.assetPath;
+
+                            assetGroup.SharedGroup.groupNode = new Group { title = "Shared Group" };
+
+                            assetGroup.SharedGroup.mainNode = dependencyNode;
+                            assetGroup.SharedGroup.mainNode.userData = 0;
+                        }
+
+                        if (!m_GraphView.Contains(assetGroup.SharedGroup.groupNode)) {
+                            m_GraphView.AddElement(assetGroup.SharedGroup.groupNode);
+                        }
+
+                        //add the node to the group and remove it from the previous group
+                        assetGroup.m_AssetNodes.Remove(dependencyNode);
+                        //assetGroup.groupNode.RemoveElement(dependencyNode);
+                        assetGroup.m_DependenciesForPlacement.Remove(dependencyNode);
+
+                        assetGroup.SharedGroup.m_DependenciesForPlacement.Add(dependencyNode);
+
+                        if (!assetGroup.SharedGroup.groupNode.ContainsElement(dependencyNode)) {
+                            assetGroup.SharedGroup.groupNode.AddElement(dependencyNode);
+                        }
+
+                        assetGroup.SharedGroup.m_AssetNodes.Add(dependencyNode);
+                    }
+                }*/
+            }
 
             Edge edge = CreateEdge(dependencyNode, parentNode);
 
-            edge.capabilities &= ~Capabilities.Deletable;
             assetGroup.m_AssetConnections.Add(edge);
             assetGroup.m_AssetNodes.Add(dependencyNode);
-
-            //if (!assetGroup.m_DependenciesForPlacement.Contains(dependencyNode))
-            //    assetGroup.m_DependenciesForPlacement.Add(dependencyNode);
         }
     }
 
@@ -610,43 +702,41 @@ public class AssetDependencyGraph : EditorWindow {
         divider.AddToClassList("horizontal");
         objNode.extensionContainer.Add(divider);
     }
+    
+    private void ClearGraph() {
+        SelectedObjects.Clear();
 
-    void ClearGroup(AssetGroup assetGroup) {
-        foreach (var edge in assetGroup.m_AssetConnections) {
-            m_GraphView.RemoveElement(edge);
+        foreach (var assetGroup in AssetGroups) {
+            EmptyGroup(assetGroup);
+        }
+
+        m_GUIDNodeLookup.Clear();
+
+        AssetGroups.Clear();
+    }
+
+    void EmptyGroup(AssetGroup assetGroup) {
+        if (assetGroup.m_AssetConnections.Count > 0) {
+            foreach (var edge in assetGroup.m_AssetConnections) {
+                m_GraphView.RemoveElement(edge);
+            }
         }
         assetGroup.m_AssetConnections.Clear();
 
         foreach (var node in assetGroup.m_AssetNodes) {
             m_GraphView.RemoveElement(node);
         }
+        assetGroup.m_AssetNodes.Clear();
+        
+        assetGroup.m_DependenciesForPlacement.Clear();
+
+        //if (assetGroup.SharedGroup != null) {
+        //    EmptyGroup(assetGroup.SharedGroup);
+        //}
 
         m_GraphView.RemoveElement(assetGroup.groupNode);
+
         assetGroup.groupNode = null;
-        assetGroup.m_AssetNodes.Clear();
-        assetGroup.m_DependenciesForPlacement.Clear();
-    }
-
-    private void ClearGraph() {
-        SelectedObjects.Clear();
-
-        foreach (var assetGroup in AssetGroups) {
-            foreach (var edge in assetGroup.m_AssetConnections) {
-                m_GraphView.RemoveElement(edge);
-            }
-            assetGroup.m_AssetConnections.Clear();
-
-            foreach (var node in assetGroup.m_AssetNodes) {
-                m_GraphView.RemoveElement(node);
-            }
-            m_GraphView.RemoveElement(assetGroup.groupNode);
-            assetGroup.groupNode = null;
-            assetGroup.m_AssetNodes.Clear();
-            assetGroup.m_DependenciesForPlacement.Clear();
-        }
-        m_GUIDNodeLookup.Clear();
-
-        AssetGroups.Clear();
     }
 
     private void UpdateGroupDependencyNodePlacement(GeometryChangedEvent e, AssetGroup assetGroup) {
@@ -654,17 +744,17 @@ public class AssetDependencyGraph : EditorWindow {
             UpdateGroupDependencyNodePlacement
         );
 
-        ResetGroup(assetGroup);
+        ResetNodes(assetGroup);
     }
 
-    void ResetAllGroups() {
+    void ResetAllNodes() {
         foreach (var assetGroup in AssetGroups) {
-            ResetGroup(assetGroup);
+            ResetNodes(assetGroup);
         }
     }
 
     //Reset the node positions of the given group
-    void ResetGroup(AssetGroup assetGroup) {
+    void ResetNodes(AssetGroup assetGroup) {
         // The current y offset in per depth
         var depthOffset = new Dictionary<int, float>();
 
@@ -696,7 +786,7 @@ public class AssetDependencyGraph : EditorWindow {
 
         foreach (var node in assetGroup.m_DependenciesForPlacement) {
             int depth = (int)node.userData;
-            //Debug.Log(depth);
+            //Debug.Log(node.layout);
             if (AlignmentToggle.value) {
                 //node.SetPosition(new Rect(mainNodeRect.x + kNodeWidth * 1.5f * depth, mainNodeRect.y + depthOffset[depth], 0, 0));
                 node.SetPosition(new Rect(mainNodeRect.x + node.layout.width * 1.5f * depth, mainNodeRect.y + depthOffset[depth], 0, 0));
@@ -712,8 +802,29 @@ public class AssetDependencyGraph : EditorWindow {
             else {
                 depthOffset[depth] += node.layout.width;
             }
-        }
+        }        
+    }
 
-        //assetGroup.m_DependenciesForPlacement.Clear();
+    //fix the position of the groups so they dont overlap
+    void ResetGroups() {
+        float y = 0;
+        float x = 0;
+
+        foreach (var assetGroup in AssetGroups) {
+            //Debug.Log(assetGroup.groupNode.GetPosition());
+
+            if (AlignmentToggle.value) {
+                Rect pos = assetGroup.groupNode.GetPosition();
+                pos.x = x;
+                assetGroup.groupNode.SetPosition(pos);
+                x += assetGroup.groupNode.GetPosition().width;
+            }
+            else {
+                Rect pos = assetGroup.groupNode.GetPosition();
+                pos.y = y;
+                assetGroup.groupNode.SetPosition(pos);
+                y += assetGroup.groupNode.GetPosition().height;
+            }
+        }
     }
 }
